@@ -1,6 +1,10 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx  # The Flax NNX API.
+from functools import partial
+import jax.numpy as jnp  # JAX NumPy
+import jax
 
 parallel_scan = jax.lax.associative_scan
 
@@ -80,3 +84,51 @@ def binary_operator_diag(element_i, element_j):
     a_i, bu_i = element_i
     a_j, bu_j = element_j
     return a_j * a_i, a_j * bu_i + bu_j
+
+
+Array = jax.Array
+
+
+class LRU(nnx.Module):
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,  # not inferred from carry for now
+        *,
+        r_min=0,
+        r_max=1,
+        max_phase=6.28,
+    ):
+        self.in_features = in_features
+        self.hidden_features = hidden_features
+        nu_log, theta_log, B_re, B_im, C_re, C_im, D, gamma_log = init_lru_parameters(
+            hidden_features, in_features, r_min=r_min, r_max=r_max, max_phase=max_phase
+        )
+
+        self.nu_log = nnx.Param(nu_log)
+        self.theta_log = nnx.Param(theta_log)
+        self.B_re = nnx.Param(B_re)
+        self.B_im = nnx.Param(B_im)
+        self.C_re = nnx.Param(C_re)
+        self.C_im = nnx.Param(C_im)
+        self.D = nnx.Param(D)
+        self.gamma_log = nnx.Param(gamma_log)
+
+    def __call__(self, inputs: Array):  # type: ignore[override]
+        # jax.debug.print("test:{}", jnp.sin(self.nu_log + self.theta_log))
+        Lambda = jnp.exp(
+            -jnp.exp(self.nu_log.value) + 1j * jnp.exp(self.theta_log.value)
+        )
+        B_norm = (self.B_re.value + 1j * self.B_im.value) * jnp.expand_dims(
+            jnp.exp(self.gamma_log.value), axis=-1
+        )
+        # Running the LRU + output projection
+        # For details on parallel scan, check discussion in Smith et al (2022).
+        Lambda_elements = jnp.repeat(Lambda[None, ...], inputs.shape[0], axis=0)
+        Bu_elements = jax.vmap(lambda u: B_norm @ u)(inputs)
+        elements = (Lambda_elements, Bu_elements)
+        C = self.C_re + 1j * self.C_im
+        _, h = parallel_scan(binary_operator_diag, elements)
+        y = jax.vmap(lambda x, u: (C @ x).real + self.D * u)(h, inputs)
+        return jnp.real(y)
