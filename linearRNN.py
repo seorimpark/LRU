@@ -11,6 +11,23 @@ parallel_scan = jax.lax.associative_scan
 # From Orvieto et al., 2023, (https://arxiv.org/abs/2303.06349)
 
 
+def compute_lr_sigma(mode: str, d, m, k, L):
+    lr = 0
+    sigma = 0
+    if mode == "input":
+        lr = m / (jnp.power(L, 3 / 2) * d)
+        sigma = 1 / jnp.sqrt(d)
+    if mode == "hidden":
+        lr = 1 / jnp.power(L, 3 / 2)
+        sigma = 2 / jnp.sqrt((m + d) / 2)
+    if mode == "output":
+        lr = k / (jnp.power(L, 3 / 2) * m)
+        sigma = jnp.sqrt(k) / m
+    else:
+        raise ValueError
+    return lr, sigma
+
+
 def forward(lru_parameters, input_sequence):
     """Forward pass of the LRU layer. Output y and input_sequence are of shape (L, H)."""
 
@@ -66,8 +83,9 @@ def init_lru_parameters(N, H, r_min=0, r_max=1, max_phase=0.314):
     theta_log = np.log(max_phase * u2)
 
     # Glorot initialized Input/Output projection matrices
-    B_re = np.random.normal(size=(N, H)) / np.sqrt(2 * H)
-    B_im = np.random.normal(size=(N, H)) / np.sqrt(2 * H)
+    lrB, sigmaB = compute_lr_sigma("output", 0, N, H, 1)
+    B_re = np.random.normal(size=(N, H), scale=sigmaB)  # / np.sqrt(2 * H)
+    B_im = np.random.normal(size=(N, H), scale=sigmaB)  # / np.sqrt(2 * H)
     C_re = np.random.normal(size=(H, N)) / np.sqrt(N)
     C_im = np.random.normal(size=(H, N)) / np.sqrt(N)
     D = np.random.normal(size=(H,))
