@@ -11,7 +11,7 @@ parallel_scan = jax.lax.associative_scan
 # From Orvieto et al., 2023, (https://arxiv.org/abs/2303.06349)
 
 
-def compute_lr_sigma(mode: str, d, m, k, L):
+def compute_lr_sigma(mode: str, mu, d, m, k, L):
     lr = 0
     sigma = 0
     if mode == "input":
@@ -25,7 +25,7 @@ def compute_lr_sigma(mode: str, d, m, k, L):
         sigma = jnp.sqrt(k) / m
     else:
         raise ValueError
-    return lr, sigma
+    return mu * lr, sigma
 
 
 def forward(lru_parameters, input_sequence):
